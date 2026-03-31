@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 using WMPLib;
@@ -14,50 +13,12 @@ namespace Music_player
         private bool isAutoPlay = true;
         private bool loopQueue = false;
         private Timer playStateCheckTimer;
-        private Bitmap defaultAlbumArt;
         private bool trackEndedHandled = false;
+        private IWMPPlaylist wmpPlaylist;
 
         public Form1()
         {
             InitializeComponent();
-            CreateDefaultAlbumArt();
-        }
-
-        private void btn_play_Click(object sender, EventArgs e)
-        {
-            if (playlist.Count == 0)
-            {
-                MessageBox.Show("Playlist is empty. Please add files.");
-                return;
-            }
-
-            if (currentTrackIndex < 0)
-            {
-                currentTrackIndex = 0;
-            }
-
-            if (btn_play.Text == "Play")
-            {
-                // Check if we're resuming the same track or starting a new one
-                if (axWindowsMediaPlayer1.URL != playlist[currentTrackIndex])
-                {
-                    // New track - load it
-                    axWindowsMediaPlayer1.URL = playlist[currentTrackIndex];
-                    LoadAlbumArt(playlist[currentTrackIndex]);
-                }
-
-                // Resume playback from current position
-                axWindowsMediaPlayer1.Ctlcontrols.play();
-                btn_play.Text = "Pause";
-                playlistBox.SelectedIndex = currentTrackIndex;
-                txtPath.Text = System.IO.Path.GetFileName(playlist[currentTrackIndex]);
-                trackEndedHandled = false;
-            }
-            else if (btn_play.Text == "Pause")
-            {
-                axWindowsMediaPlayer1.Ctlcontrols.pause();
-                btn_play.Text = "Play";
-            }
         }
 
         private void btn_browse_Click(object sender, EventArgs e)
@@ -75,43 +36,20 @@ namespace Music_player
                     {
                         playlist.Add(file);
                         playlistBox.Items.Add(System.IO.Path.GetFileName(file));
+
+                        // Add to Windows Media Player playlist
+                        try
+                        {
+                            IWMPMedia media = axWindowsMediaPlayer1.newMedia(file);
+                            wmpPlaylist.appendItem(media);
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show("Error adding to WMP playlist: " + ex.Message);
+                        }
                     }
                 }
             }
-        }
-
-        private void btn_next_Click(object sender, EventArgs e)
-        {
-            if (playlist.Count == 0)
-            {
-                MessageBox.Show("Playlist is empty.");
-                return;
-            }
-
-            currentTrackIndex++;
-            if (currentTrackIndex >= playlist.Count)
-            {
-                currentTrackIndex = 0;
-            }
-
-            PlayTrack(currentTrackIndex);
-        }
-
-        private void btn_previous_Click(object sender, EventArgs e)
-        {
-            if (playlist.Count == 0)
-            {
-                MessageBox.Show("Playlist is empty.");
-                return;
-            }
-
-            currentTrackIndex--;
-            if (currentTrackIndex < 0)
-            {
-                currentTrackIndex = playlist.Count - 1;
-            }
-
-            PlayTrack(currentTrackIndex);
         }
 
         private void playlistBox_DoubleClick(object sender, EventArgs e)
@@ -127,95 +65,28 @@ namespace Music_player
         {
             if (index >= 0 && index < playlist.Count)
             {
-                axWindowsMediaPlayer1.URL = playlist[index];
-                axWindowsMediaPlayer1.Ctlcontrols.play();
-                btn_play.Text = "Pause";
-                playlistBox.SelectedIndex = index;
-                txtPath.Text = System.IO.Path.GetFileName(playlist[index]);
-                LoadAlbumArt(playlist[index]);
-                trackEndedHandled = false;
-            }
-        }
-
-        private void CreateDefaultAlbumArt()
-        {
-            // Create a default album art image (music note symbol)
-            defaultAlbumArt = new Bitmap(165, 165);
-            using (Graphics g = Graphics.FromImage(defaultAlbumArt))
-            {
-                g.Clear(Color.LightGray);
-                using (Pen pen = new Pen(Color.DarkGray, 3))
+                try
                 {
-                    // Draw a simple music note
-                    g.DrawEllipse(pen, 50, 100, 30, 30);
-                    g.DrawLine(pen, 80, 100, 85, 40);
-                    g.DrawArc(pen, 85, 35, 40, 30, 0, 180);
+                    // Stop current playback first
+                    axWindowsMediaPlayer1.Ctlcontrols.stop();
+
+                    // Clear the current URL
+                    axWindowsMediaPlayer1.URL = "";
+
+                    // Set the new URL
+                    axWindowsMediaPlayer1.URL = playlist[index];
+
+                    // Start playback
+                    axWindowsMediaPlayer1.Ctlcontrols.play();
+
+                    playlistBox.SelectedIndex = index;
+                    txtPath.Text = System.IO.Path.GetFileName(playlist[index]);
+                    trackEndedHandled = false;
                 }
-                g.DrawString("♪ Music ♪", new Font("Arial", 16, FontStyle.Bold), 
-                    new SolidBrush(Color.DarkGray), new PointF(15, 60));
-            }
-            pictureBox_AlbumArt.Image = defaultAlbumArt;
-        }
-
-        private void LoadAlbumArt(string filePath)
-        {
-            try
-            {
-                // Check if there's an associated image file in the same directory
-                string directory = Path.GetDirectoryName(filePath);
-                string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
-
-                // Look for common album art file names
-                string[] albumArtNames = {
-                    Path.Combine(directory, "cover.jpg"),
-                    Path.Combine(directory, "cover.png"),
-                    Path.Combine(directory, "album.jpg"),
-                    Path.Combine(directory, "album.png"),
-                    Path.Combine(directory, fileNameWithoutExtension + ".jpg"),
-                    Path.Combine(directory, fileNameWithoutExtension + ".png")
-                };
-
-                foreach (string artPath in albumArtNames)
+                catch (Exception ex)
                 {
-                    if (File.Exists(artPath))
-                    {
-                        try
-                        {
-                            // Create a copy of the image to avoid file locking issues
-                            Bitmap albumArt = new Bitmap(artPath);
-                            Bitmap displayImage = new Bitmap(albumArt);
-                            albumArt.Dispose();
-
-                            // Dispose old image if it's not the default
-                            if (pictureBox_AlbumArt.Image != null && pictureBox_AlbumArt.Image != defaultAlbumArt)
-                            {
-                                pictureBox_AlbumArt.Image.Dispose();
-                            }
-
-                            pictureBox_AlbumArt.Image = displayImage;
-                            return;
-                        }
-                        catch
-                        {
-                            // If loading fails, continue to next option
-                        }
-                    }
+                    MessageBox.Show("Error playing track: " + ex.Message);
                 }
-
-                // No album art file found, use default
-                if (pictureBox_AlbumArt.Image != defaultAlbumArt)
-                {
-                    if (pictureBox_AlbumArt.Image != null)
-                    {
-                        pictureBox_AlbumArt.Image.Dispose();
-                    }
-                    pictureBox_AlbumArt.Image = defaultAlbumArt;
-                }
-            }
-            catch
-            {
-                // If any error occurs, show default album art
-                pictureBox_AlbumArt.Image = defaultAlbumArt;
             }
         }
 
@@ -238,9 +109,8 @@ namespace Music_player
                 else
                 {
                     // Stop at end of queue
-                    btn_play.Text = "Play";
                     currentTrackIndex = playlist.Count - 1;
-                    MessageBox.Show("Queue finished. Click Play to restart.");
+                    MessageBox.Show("Queue finished. Use the player controls to restart.");
                 }
             }
             else
@@ -258,16 +128,23 @@ namespace Music_player
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            // Create a new WMP playlist
+            try
+            {
+                wmpPlaylist = axWindowsMediaPlayer1.playlistCollection.newPlaylist("CustomPlaylist");
+                axWindowsMediaPlayer1.currentPlaylist = wmpPlaylist;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error creating WMP playlist: " + ex.Message);
+            }
+
             // Initialize volume settings
             trackVolume.Value = 30;
             axWindowsMediaPlayer1.settings.volume = 30;
 
             // Show Windows Media Player controls
             axWindowsMediaPlayer1.uiMode = "full";
-
-            // Ensure picture box is visible and shows default album art
-            pictureBox_AlbumArt.Visible = true;
-            pictureBox_AlbumArt.Image = defaultAlbumArt;
 
             // Setup timer to check playback state for queue progression
             playStateCheckTimer = new Timer();
@@ -279,7 +156,6 @@ namespace Music_player
         private void PlayStateCheckTimer_Tick(object sender, EventArgs e)
         {
             // Check if current track has stopped
-            // WMPPlayState.wmppsStopped = 1
             if (axWindowsMediaPlayer1.playState == WMPPlayState.wmppsStopped && currentTrackIndex >= 0 && !trackEndedHandled)
             {
                 trackEndedHandled = true;
@@ -298,27 +174,116 @@ namespace Music_player
 
             if (result == DialogResult.Yes)
             {
-                // Stop playback if playing
-                if (btn_play.Text == "Pause")
+                // Stop playback
+                try
                 {
                     axWindowsMediaPlayer1.Ctlcontrols.stop();
                 }
+                catch { }
 
                 // Clear the playlist
                 playlist.Clear();
                 playlistBox.Items.Clear();
 
+                // Reset WMP playlist
+                try
+                {
+                    wmpPlaylist = axWindowsMediaPlayer1.playlistCollection.newPlaylist("CustomPlaylist");
+                    axWindowsMediaPlayer1.currentPlaylist = wmpPlaylist;
+                }
+                catch { }
+
                 // Reset player state
                 currentTrackIndex = -1;
-                btn_play.Text = "Play";
                 txtPath.Text = "Path";
                 axWindowsMediaPlayer1.URL = "";
 
-                // Show default album art
-                pictureBox_AlbumArt.Image = defaultAlbumArt;
-
                 MessageBox.Show("Playlist cleared successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+        }
+
+        private void btn_moveUp_Click(object sender, EventArgs e)
+        {
+            if (playlistBox.SelectedIndex <= 0)
+            {
+                MessageBox.Show("Select a track to move up (not the first one).");
+                return;
+            }
+
+            int selectedIndex = playlistBox.SelectedIndex;
+            int newIndex = selectedIndex - 1;
+
+            // Swap in playlist
+            string temp = playlist[selectedIndex];
+            playlist[selectedIndex] = playlist[newIndex];
+            playlist[newIndex] = temp;
+
+            // Swap in listbox
+            object tempItem = playlistBox.Items[selectedIndex];
+            playlistBox.Items[selectedIndex] = playlistBox.Items[newIndex];
+            playlistBox.Items[newIndex] = tempItem;
+
+            // Swap in WMP playlist
+            try
+            {
+                IWMPMedia mediaSelected = wmpPlaylist.get_Item(selectedIndex);
+                IWMPMedia mediaNew = wmpPlaylist.get_Item(newIndex);
+
+                wmpPlaylist.removeItem(mediaSelected);
+                wmpPlaylist.insertItem(newIndex, mediaSelected);
+            }
+            catch { }
+
+            // Update current track index if needed
+            if (currentTrackIndex == selectedIndex)
+                currentTrackIndex = newIndex;
+            else if (currentTrackIndex == newIndex)
+                currentTrackIndex = selectedIndex;
+
+            // Select the moved item
+            playlistBox.SelectedIndex = newIndex;
+        }
+
+        private void btn_moveDown_Click(object sender, EventArgs e)
+        {
+            if (playlistBox.SelectedIndex < 0 || playlistBox.SelectedIndex >= playlistBox.Items.Count - 1)
+            {
+                MessageBox.Show("Select a track to move down (not the last one).");
+                return;
+            }
+
+            int selectedIndex = playlistBox.SelectedIndex;
+            int newIndex = selectedIndex + 1;
+
+            // Swap in playlist
+            string temp = playlist[selectedIndex];
+            playlist[selectedIndex] = playlist[newIndex];
+            playlist[newIndex] = temp;
+
+            // Swap in listbox
+            object tempItem = playlistBox.Items[selectedIndex];
+            playlistBox.Items[selectedIndex] = playlistBox.Items[newIndex];
+            playlistBox.Items[newIndex] = tempItem;
+
+            // Swap in WMP playlist
+            try
+            {
+                IWMPMedia mediaSelected = wmpPlaylist.get_Item(selectedIndex);
+                IWMPMedia mediaNew = wmpPlaylist.get_Item(newIndex);
+
+                wmpPlaylist.removeItem(mediaNew);
+                wmpPlaylist.insertItem(selectedIndex, mediaNew);
+            }
+            catch { }
+
+            // Update current track index if needed
+            if (currentTrackIndex == selectedIndex)
+                currentTrackIndex = newIndex;
+            else if (currentTrackIndex == newIndex)
+                currentTrackIndex = selectedIndex;
+
+            // Select the moved item
+            playlistBox.SelectedIndex = newIndex;
         }
     }
 }
